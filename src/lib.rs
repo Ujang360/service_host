@@ -3,18 +3,18 @@ extern crate log;
 
 use futures::{future::Future, stream::Stream};
 use signal_hook::{self, iterator::Signals};
-use std::io::Error;
-use std::marker::PhantomData;
+use std::{io::Error, marker::PhantomData, sync::Arc};
 use tokio;
 use tokio_threadpool::ThreadPool;
 
 pub trait ServiceControl<T> {
-    fn create_and_start(service_config: &'static T, thread_pool: &'static ThreadPool) -> Self;
+    fn create_and_start(service_config: Arc<T>, thread_pool: &ThreadPool) -> Self;
     fn shutdown(self);
 }
 
 pub struct ServiceHost<T, S> {
     service_container: S,
+    thread_manager: ThreadPool,
     phantom: PhantomData<T>,
 }
 
@@ -23,9 +23,11 @@ where
     T: Send + 'static,
     S: ServiceControl<T> + Send + 'static,
 {
-    pub fn create_and_start(service_config: &'static T, thread_pool: &'static ThreadPool) -> Self {
+    pub fn create_and_start(service_config: Arc<T>) -> Self {
+        let thread_pool = ThreadPool::new();
         Self {
-            service_container: S::create_and_start(service_config, thread_pool),
+            service_container: S::create_and_start(service_config, &thread_pool),
+            thread_manager: thread_pool,
             phantom: PhantomData,
         }
     }
@@ -43,6 +45,10 @@ where
             .map(move |_| {
                 info!("Shutdown sequence initiated...");
                 self.service_container.shutdown();
+                self.thread_manager
+                    .shutdown()
+                    .wait()
+                    .expect_err("Failed to shutdown ThreadPool");
             })
             .map_err(|e| {
                 let error_message = format!("Signal panic!\n{}", e.0);
