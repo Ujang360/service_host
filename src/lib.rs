@@ -40,7 +40,10 @@ where
         let wait_signal = Signals::new(&[signal_hook::SIGINT, signal_hook::SIGTERM])?
             .into_async()?
             .into_future()
-            .map(move |_| self.service_container.shutdown())
+            .map(move |_| {
+                info!("Shutdown sequence initiated...");
+                self.service_container.shutdown();
+            })
             .map_err(|e| {
                 let error_message = format!("Signal panic!\n{}", e.0);
                 error!("{}", &error_message);
