@@ -8,7 +8,7 @@ use tokio;
 use tokio_threadpool::ThreadPool;
 
 pub trait ServiceControl<T> {
-    fn create_and_start(service_config: Arc<T>, thread_pool: &ThreadPool) -> Self;
+    fn create_and_start(data: Arc<&'static T>, thread_pool: &ThreadPool) -> Self;
     fn shutdown(self);
 }
 
@@ -23,10 +23,10 @@ where
     T: Send + 'static,
     S: ServiceControl<T> + Send + 'static,
 {
-    pub fn create_and_start(service_config: Arc<T>) -> Self {
+    pub fn create_and_start(data: Arc<&'static T>) -> Self {
         let thread_pool = ThreadPool::new();
         Self {
-            service_container: S::create_and_start(service_config, &thread_pool),
+            service_container: S::create_and_start(data, &thread_pool),
             thread_manager: thread_pool,
             phantom: PhantomData,
         }
@@ -45,10 +45,7 @@ where
             .map(move |_| {
                 info!("Shutdown sequence initiated...");
                 self.service_container.shutdown();
-                self.thread_manager
-                    .shutdown()
-                    .wait()
-                    .expect_err("Failed to shutdown ThreadPool");
+                let _ = self.thread_manager.shutdown().catch_unwind().wait();
             })
             .map_err(|e| {
                 let error_message = format!("Signal panic!\n{}", e.0);
